@@ -1,0 +1,138 @@
+
+-- Creates a list of date weeks with the total number of activated users and active users for that week
+
+
+
+-- Removes declines and extracts just the date from the timestamp
+WITH transactions AS(
+  SELECT
+  DATE(timestamp) AS transaction_date,
+  user_id
+  
+  FROM `analytics-take-home-test.monzo_product.transactions`
+  
+  WHERE amount IS NOT NULL
+),
+
+-- Counts the number of transactions made by the user for each distinct day they made a transaction
+ count_transactions AS (
+  SELECT DISTINCT
+  transaction_date,
+  user_id,
+  COUNT(*) OVER (PARTITION BY transaction_date, user_id) AS num_of_transactions
+
+  FROM transactions
+ ),
+
+ -- List of all users
+users AS (
+  SELECT DISTINCT
+  user_id
+
+  FROM transactions
+),
+
+-- Generate a list of dates from the first date that appears in the users table (2016-01-22) to the last (2018-06-15)
+-- Instead of specifying an end date, you'd use CURRENT_DATE() for ongoing monitoring
+date_array AS(
+    SELECT
+    array_date
+
+    FROM UNNEST(
+      GENERATE_DATE_ARRAY(
+        "2016-01-22",
+        "2018-06-15",
+        INTERVAL 1 day
+      )
+    ) AS array_date
+),
+
+-- For every date in the date array, list all users
+ gapless_grid AS (
+  SELECT DISTINCT
+  d.array_date,
+  u.user_id,
+
+  FROM date_array AS d
+  CROSS JOIN users AS u
+),
+
+-- List of dates and all users with the number of transactions they made on that date.
+ daily_transactions AS (
+  SELECT
+  gg.array_date,
+  gg.user_id,
+
+  c.num_of_transactions
+
+  FROM gapless_grid AS gg
+
+  LEFT JOIN count_transactions AS c ON (gg.user_id = c.user_id AND gg.array_date = c.transaction_date)
+ ),
+
+-- List of dates and all users with the number of transactions they made in the last week of that date
+weekly_transactions AS (
+  SELECT
+  array_date,
+  user_id,
+
+  SUM(COALESCE(num_of_transactions, 0)) OVER (PARTITION BY user_id ORDER BY array_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS sum_weekly_transactions,
+
+  FROM daily_transactions
+),
+
+-- List of date weeks (week commencing Sunday) and the number of active users that fall within that week
+-- Active user is defined as a user who has made a successful transaction within the last 7 days of that week.
+weekly_active_users AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users
+
+  FROM weekly_transactions
+  
+  GROUP BY date_week
+),
+
+-- List of date weeks and the number of accounts activated that week
+weekly_activations AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` ON (array_date = DATE(account_activation))
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+-- Running total of account activations by week
+weekly_activations_running AS (
+  SELECT
+  date_week,
+  SUM(accounts_activated_weekly) OVER (ORDER BY date_week) AS accounts_activated
+
+FROM weekly_activations
+),
+
+-- List of date weeks and the proportion of active users in that week
+weekly_active_user_rate AS(
+SELECT
+wau.date_week,
+wau.weekly_active_users,
+
+war.accounts_activated,
+
+SAFE_DIVIDE(wau.weekly_active_users, war.accounts_activated) AS weekly_active_rate
+
+FROM weekly_active_users AS wau
+LEFT JOIN weekly_activations_running AS war USING (date_week)
+)
+
+
+SELECT * 
+
+FROM weekly_active_user_rate
+
+
+
