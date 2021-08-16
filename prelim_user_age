@@ -1,0 +1,7 @@
+SELECT 
+age,
+COUNT(user_id) AS count_users
+
+FROM `analytics-take-home-test.monzo_product.users` 
+
+GROUP BY 1
