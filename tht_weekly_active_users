@@ -1,4 +1,3 @@
-
 -- Creates a list of date weeks with the total number of activated users and active users for that week
 
 
@@ -27,7 +26,8 @@ WITH transactions AS(
  -- List of all users
 users AS (
   SELECT
-  user_id
+  user_id,
+  DATE(account_activation) AS account_activation
 
   FROM `analytics-take-home-test.monzo_product.users`
 ),
@@ -55,6 +55,8 @@ date_array AS(
 
   FROM date_array AS d
   CROSS JOIN users AS u
+
+  WHERE u.account_activation <= d.array_date
 ),
 
 -- List of dates and all users with the number of transactions they made on that date.
@@ -134,5 +136,4 @@ SELECT *
 
 FROM weekly_active_user_rate
 
-
-
+ORDER BY date_week ASC
