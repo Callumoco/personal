@@ -1,0 +1,7 @@
+SELECT 
+chat_conversations,
+COUNT(DISTINCT user_id) AS count_users
+
+ FROM `analytics-take-home-test.monzo_product.user_activity_daily` 
+
+ GROUP BY 1
