@@ -26,10 +26,10 @@ WITH transactions AS(
 
  -- List of all users
 users AS (
-  SELECT DISTINCT
+  SELECT
   user_id
 
-  FROM transactions
+  FROM `analytics-take-home-test.monzo_product.users`
 ),
 
 -- Generate a list of dates from the first date that appears in the users table (2016-01-22) to the last (2018-06-15)
