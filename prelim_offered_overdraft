@@ -1,0 +1,8 @@
+SELECT 
+    -- We'll consider NULLs and 0's as the same for offered_overdraft_yn
+    IF(offered_overdraft = 1, "Yes", "No") AS offered_overdraft_yn,
+    COUNT(*) AS count_users
+    
+FROM `analytics-take-home-test.monzo_product.users` 
+
+GROUP BY 1
