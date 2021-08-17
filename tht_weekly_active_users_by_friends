@@ -110,7 +110,7 @@ weekly_active_users_f0 AS (
 ),
 
 -- List of date weeks and the number of accounts activated that week
--- That have also been offered an overdraft
+-- That also have 0 friends on Monzo (logic is repeated for 1-2, 3-10 and 11+)
 weekly_activations_f0 AS(
   SELECT DISTINCT
   FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
