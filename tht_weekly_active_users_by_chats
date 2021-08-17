@@ -1,0 +1,301 @@
+-- Creates a list of date weeks with the total number of activated users and active users for that week
+-- Partitioned by the number of chat tasks the user has created (0, 1, 2, 3 and 4+)
+
+
+-- Removes declines and extracts just the date from the timestamp
+WITH transactions AS(
+  SELECT
+  DATE(timestamp) AS transaction_date,
+  user_id
+  
+  FROM `analytics-take-home-test.monzo_product.transactions`
+  
+  WHERE amount IS NOT NULL
+),
+
+-- Counts the number of transactions made by the user for each distinct day they made a transaction
+ count_transactions AS (
+  SELECT DISTINCT
+  transaction_date,
+  user_id,
+  COUNT(*) OVER (PARTITION BY transaction_date, user_id) AS num_of_transactions
+
+  FROM transactions
+ ),
+
+ -- List of all users
+users AS (
+  SELECT
+  user_id,
+  DATE(account_activation) AS account_activation,
+  SUM(daily.chat_conversations) AS chat_conversations
+
+  FROM `analytics-take-home-test.monzo_product.users`
+  LEFT JOIN `analytics-take-home-test.monzo_product.user_activity_daily` AS daily USING (user_id)
+
+  GROUP BY 1, 2
+
+),
+
+-- Generate a list of dates from the first date that appears in the users table (2016-01-22) to the last (2018-06-15)
+-- Instead of specifying an end date, you'd use CURRENT_DATE() for ongoing monitoring
+date_array AS(
+    SELECT
+    array_date
+
+    FROM UNNEST(
+      GENERATE_DATE_ARRAY(
+        "2016-01-22",
+        "2018-06-15",
+        INTERVAL 1 day
+      )
+    ) AS array_date
+),
+
+-- For every date in the date array, list all users
+ gapless_grid AS (
+  SELECT DISTINCT
+  d.array_date,
+  u.user_id,
+
+  FROM date_array AS d
+  CROSS JOIN users AS u
+
+  WHERE u.account_activation <= d.array_date
+),
+
+-- List of dates and all users with the number of transactions they made on that date.
+ daily_transactions AS (
+  SELECT
+  gg.array_date,
+  gg.user_id,
+
+  c.num_of_transactions
+
+  FROM gapless_grid AS gg
+
+  LEFT JOIN count_transactions AS c ON (gg.user_id = c.user_id AND gg.array_date = c.transaction_date)
+ ),
+
+-- List of dates and all users with the number of transactions they made in the last week of that date
+weekly_transactions AS (
+  SELECT
+  array_date,
+  user_id,
+
+  SUM(COALESCE(num_of_transactions, 0)) OVER (PARTITION BY user_id ORDER BY array_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS sum_weekly_transactions,
+
+  FROM daily_transactions
+),
+
+
+
+
+
+-- List of date weeks (week commencing Sunday) and the number of active users that fall within that week
+-- Active user is defined as a user who has made a successful transaction within the last 7 days of that week.
+weekly_active_users_c0 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_c0
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.chat_conversations = 0
+  
+  GROUP BY date_week
+),
+
+-- List of date weeks and the number of accounts activated that week
+-- That also have 0 chat tasks (logic is repeated for 1, 2, 3 and 4+)
+weekly_activations_c0 AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly_c0
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` AS users ON (array_date = DATE(account_activation))
+  LEFT JOIN users AS users_cte USING (user_id)
+
+  WHERE users_cte.chat_conversations = 0
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+weekly_active_users_c1 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_c1
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.chat_conversations = 1
+  
+  GROUP BY date_week
+),
+
+weekly_activations_c1 AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly_c1
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` AS users ON (array_date = DATE(account_activation))
+  LEFT JOIN users AS users_cte USING (user_id)
+  
+  WHERE users_cte.chat_conversations = 1
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+weekly_active_users_c2 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_c2
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.chat_conversations = 2
+  
+  GROUP BY date_week
+),
+
+weekly_activations_c2 AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly_c2
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` AS users ON (array_date = DATE(account_activation))
+  LEFT JOIN users AS users_cte USING (user_id)
+
+  WHERE users_cte.chat_conversations = 2
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+weekly_active_users_c3 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_c3
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.chat_conversations = 3
+  
+  GROUP BY date_week
+),
+
+weekly_activations_c3 AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly_c3
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` AS users ON (array_date = DATE(account_activation))
+  LEFT JOIN users AS users_cte USING (user_id)
+
+  WHERE users_cte.chat_conversations = 3
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+weekly_active_users_c4 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_c4
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.chat_conversations >= 4
+  
+  GROUP BY date_week
+),
+
+weekly_activations_c4 AS(
+  SELECT DISTINCT
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT user_id) OVER (week_window) AS accounts_activated_weekly_c4
+  
+  FROM date_array
+  LEFT JOIN `analytics-take-home-test.monzo_product.users` AS users ON (array_date = DATE(account_activation))
+  LEFT JOIN users AS users_cte USING (user_id)
+
+  WHERE users_cte.chat_conversations >= 4
+  
+  WINDOW
+  week_window AS (PARTITION BY FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))))
+),
+
+-- Running total of account activations by week
+weekly_activations_running AS (
+  SELECT
+  date_week,
+  SUM(accounts_activated_weekly_c0) OVER (ORDER BY date_week) AS accounts_activated_c0,
+  SUM(accounts_activated_weekly_c1) OVER (ORDER BY date_week) AS accounts_activated_c1,
+  SUM(accounts_activated_weekly_c2) OVER (ORDER BY date_week) AS accounts_activated_c2,
+  SUM(accounts_activated_weekly_c3) OVER (ORDER BY date_week) AS accounts_activated_c3,
+  SUM(accounts_activated_weekly_c4) OVER (ORDER BY date_week) AS accounts_activated_c4
+
+FROM weekly_activations_c0
+LEFT JOIN weekly_activations_c1 USING (date_week)
+LEFT JOIN weekly_activations_c2 USING (date_week)
+LEFT JOIN weekly_activations_c3 USING (date_week)
+LEFT JOIN weekly_activations_c4 USING (date_week)
+),
+
+-- List of date weeks and the proportion of active users in that week
+weekly_active_user_rate_chats AS(
+SELECT
+wau0.date_week,
+
+-- Stats on users that have zero chat tasks
+wau0.weekly_active_users_c0,
+war.accounts_activated_c0,
+SAFE_DIVIDE(wau0.weekly_active_users_c0, war.accounts_activated_c0) AS weekly_active_rate_0_chats,
+
+-- Stats on users that have 1 chat task
+wau1.weekly_active_users_c1,
+war.accounts_activated_c1,
+SAFE_DIVIDE(wau1.weekly_active_users_c1, war.accounts_activated_c1) AS weekly_active_rate_1_chat,
+
+-- Stats on users that have 2 chat tasks
+wau2.weekly_active_users_c2,
+war.accounts_activated_c2,
+SAFE_DIVIDE(wau2.weekly_active_users_c2, war.accounts_activated_c2) AS weekly_active_rate_2_chats,
+
+-- Stats on users that have 3 chat tasks
+wau3.weekly_active_users_c3,
+war.accounts_activated_c3,
+SAFE_DIVIDE(wau3.weekly_active_users_c3, war.accounts_activated_c3) AS weekly_active_rate_3_chats,
+
+-- Stats on users that have 4+ chat tasks
+wau4.weekly_active_users_c4,
+war.accounts_activated_c4,
+SAFE_DIVIDE(wau4.weekly_active_users_c4, war.accounts_activated_c4) AS weekly_active_rate_4_plus_chats,
+
+
+FROM weekly_active_users_c0 AS wau0
+LEFT JOIN weekly_active_users_c1 AS wau1 USING (date_week)
+LEFT JOIN weekly_active_users_c2 AS wau2 USING (date_week)
+LEFT JOIN weekly_active_users_c3 AS wau3 USING (date_week)
+LEFT JOIN weekly_active_users_c4 AS wau4 USING (date_week)
+
+LEFT JOIN weekly_activations_running AS war USING (date_week) 
+)
+
+
+SELECT * 
+
+FROM weekly_active_user_rate_chats
+
+ORDER BY date_week ASC
