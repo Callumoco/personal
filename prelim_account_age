@@ -1,0 +1,8 @@
+SELECT DISTINCT
+    FORMAT_TIMESTAMP("%Y-%m",TIMESTAMP_TRUNC(account_activation, MONTH)) AS account_activation_month,
+    COUNT(*) AS count_users
+    
+    FROM `analytics-take-home-test.monzo_product.users` 
+    
+    GROUP BY 1
+    ORDER BY 1 ASC
