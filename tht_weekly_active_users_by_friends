@@ -222,7 +222,7 @@ LEFT JOIN weekly_activations_f3 USING (date_week)
 ),
 
 -- List of date weeks and the proportion of active users in that week
-weekly_active_user_rate_offered_od AS(
+weekly_active_user_rate_friends AS(
 SELECT
 wau0.date_week,
 
@@ -258,6 +258,6 @@ LEFT JOIN weekly_activations_running AS war USING (date_week)
 
 SELECT * 
 
-FROM weekly_active_user_rate_offered_od 
+FROM weekly_active_user_rate_friends
 
 ORDER BY date_week ASC
