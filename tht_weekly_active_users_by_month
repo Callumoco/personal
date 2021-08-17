@@ -1,0 +1,267 @@
+-- Creates a list of date weeks with the total number of activated users and active users for that week
+-- Partitioned by the account activation month (from December 2017 - June 2018)
+
+-- Removes declines and extracts just the date from the timestamp
+WITH transactions AS(
+  SELECT
+  DATE(timestamp) AS transaction_date,
+  user_id
+  
+  FROM `analytics-take-home-test.monzo_product.transactions`
+  
+  WHERE amount IS NOT NULL
+),
+
+-- Counts the number of transactions made by the user for each distinct day they made a transaction
+ count_transactions AS (
+  SELECT DISTINCT
+  transaction_date,
+  user_id,
+  COUNT(*) OVER (PARTITION BY transaction_date, user_id) AS num_of_transactions
+
+  FROM transactions
+ ),
+
+ -- List of all users
+users AS (
+  SELECT
+  user_id,
+  DATE(account_activation) AS account_activation,
+  FORMAT_TIMESTAMP("%Y_%m",TIMESTAMP_TRUNC(account_activation, MONTH)) AS account_activation_month
+
+  FROM `analytics-take-home-test.monzo_product.users`
+),
+
+-- Generate a list of dates from the first date that appears in the users table (2016-01-22) to the last (2018-06-15)
+-- Instead of specifying an end date, you'd use CURRENT_DATE() for ongoing monitoring
+date_array AS(
+    SELECT
+    array_date
+
+    FROM UNNEST(
+      GENERATE_DATE_ARRAY(
+        "2016-01-22",
+        "2018-06-15",
+        INTERVAL 1 day
+      )
+    ) AS array_date
+),
+
+-- For every date in the date array, list all users
+ gapless_grid AS (
+  SELECT DISTINCT
+  d.array_date,
+  u.user_id,
+
+  FROM date_array AS d
+  CROSS JOIN users AS u
+
+  WHERE u.account_activation <= d.array_date
+),
+
+-- List of dates and all users with the number of transactions they made on that date.
+ daily_transactions AS (
+  SELECT
+  gg.array_date,
+  gg.user_id,
+
+  c.num_of_transactions
+
+  FROM gapless_grid AS gg
+
+  LEFT JOIN count_transactions AS c ON (gg.user_id = c.user_id AND gg.array_date = c.transaction_date)
+ ),
+
+-- List of dates and all users with the number of transactions they made in the last week of that date
+weekly_transactions AS (
+  SELECT
+  array_date,
+  user_id,
+
+  SUM(COALESCE(num_of_transactions, 0)) OVER (PARTITION BY user_id ORDER BY array_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS sum_weekly_transactions,
+
+  FROM daily_transactions
+),
+
+
+
+
+
+-- List of date weeks (week commencing Sunday) and the number of active users that fall within that week
+-- Active user is defined as a user who has made a successful transaction within the last 7 days of that week.
+-- That also has an activation month of 2017-12 (logic is repeated through to June 2018)
+weekly_active_users_m0 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m0
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2017_12"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m1 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m1
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_01"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m2 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m2
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_02"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m3 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m3
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_03"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m4 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m4
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_04"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m5 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m5
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_05"
+  
+  GROUP BY date_week
+),
+
+weekly_active_users_m6 AS (
+  SELECT 
+  FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+  COUNT(DISTINCT IF(sum_weekly_transactions > 0, user_id, NULL)) AS weekly_active_users_m6
+
+  FROM weekly_transactions As weekly
+  LEFT JOIN users AS users USING (user_id)
+
+  WHERE users.account_activation_month = "2018_06"
+  
+  GROUP BY date_week
+),
+
+
+-- Get the number of activated accounts partitioned by activation month, joined onto date_week for joining later
+activations_by_cohort AS (
+    SELECT DISTINCT
+    FORMAT_TIMESTAMP('%F', TIMESTAMP_TRUNC(array_date, WEEK(SUNDAY))) AS date_week,
+    users.account_activation_month,
+    COUNT(DISTINCT user_id) OVER (PARTITION BY users.account_activation_month) AS activations_in_cohort
+
+    FROM gapless_grid
+    LEFT JOIN users USING (user_id)
+),
+
+-- Get the number of account activations for each cohort and display them as new columns
+-- These activation values will only show up on rows where the date_week contains users from that cohort
+pivot_cohort AS(
+    SELECT * FROM
+        (
+            SELECT * FROM activations_by_cohort 
+        ) 
+    PIVOT
+        (
+            MAX(activations_in_cohort) AS activations_in_cohort
+            FOR account_activation_month IN ("2017_12", "2018_01", "2018_02", "2018_03", "2018_04", "2018_05", "2018_06")
+        )
+),
+
+
+-- List of date weeks and the proportion of active users in that week, by activation month
+weekly_active_user_rate_activation_month AS(
+SELECT
+wau0.date_week,
+
+-- Stats on users that joined in 2017-12
+pvt.activations_in_cohort_2017_12,
+wau0.weekly_active_users_m0,
+SAFE_DIVIDE(wau0.weekly_active_users_m0, pvt.activations_in_cohort_2017_12) AS weekly_active_rate_2017_12,
+
+-- Stats on users that joined in 2018-01
+pvt.activations_in_cohort_2018_01,
+wau1.weekly_active_users_m1,
+SAFE_DIVIDE(wau1.weekly_active_users_m1, pvt.activations_in_cohort_2018_01) AS weekly_active_rate_2018_01,
+
+-- Stats on users that joined in 2018-02
+pvt.activations_in_cohort_2018_02,
+wau2.weekly_active_users_m2,
+SAFE_DIVIDE(wau2.weekly_active_users_m2, pvt.activations_in_cohort_2018_02) AS weekly_active_rate_2018_02,
+
+-- Stats on users that joined in 2018-03
+pvt.activations_in_cohort_2018_03,
+wau3.weekly_active_users_m3,
+SAFE_DIVIDE(wau3.weekly_active_users_m3, pvt.activations_in_cohort_2018_03) AS weekly_active_rate_2018_03,
+
+-- Stats on users that joined in 2018-04
+pvt.activations_in_cohort_2018_04,
+wau4.weekly_active_users_m4,
+SAFE_DIVIDE(wau4.weekly_active_users_m4, pvt.activations_in_cohort_2018_04) AS weekly_active_rate_2018_04,
+
+-- Stats on users that joined in 2018-05
+pvt.activations_in_cohort_2018_05,
+wau5.weekly_active_users_m5,
+SAFE_DIVIDE(wau5.weekly_active_users_m5, pvt.activations_in_cohort_2018_05) AS weekly_active_rate_2018_05,
+
+-- Stats on users that joined in 2018-06
+pvt.activations_in_cohort_2018_06,
+wau6.weekly_active_users_m6,
+SAFE_DIVIDE(wau6.weekly_active_users_m6, pvt.activations_in_cohort_2018_06) AS weekly_active_rate_2018_06,
+
+FROM weekly_active_users_m0 AS wau0
+LEFT JOIN weekly_active_users_m1 AS wau1 USING (date_week)
+LEFT JOIN weekly_active_users_m2 AS wau2 USING (date_week)
+LEFT JOIN weekly_active_users_m3 AS wau3 USING (date_week)
+LEFT JOIN weekly_active_users_m4 AS wau4 USING (date_week)
+LEFT JOIN weekly_active_users_m5 AS wau5 USING (date_week)
+LEFT JOIN weekly_active_users_m6 AS wau6 USING (date_week)
+
+LEFT JOIN pivot_cohort AS pvt USING (date_week) 
+)
+
+
+SELECT * 
+
+FROM weekly_active_user_rate_activation_month
+
+ORDER BY date_week ASC
