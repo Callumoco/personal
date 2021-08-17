@@ -4,6 +4,7 @@ COUNT(user_id) AS count_users
 
  FROM `analytics-take-home-test.monzo_product.users` 
 
+-- Some users have NULL or negative numbers for this field, this will filter these users out
  WHERE friends_on_monzo >=0
 
  GROUP BY 1
